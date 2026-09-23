@@ -18,6 +18,12 @@ class Config:
 
         self.bot_token = os.getenv("BOT_TOKEN", "").strip()
         self.proxy_url = self._load_proxy_url()
+        self.lecture_surveys = self._load_env_list("LECTURE_SURVEYS")
+        self.fok_surveys = self._load_env_list("FOK_SURVEYS")
+        self.mastery_surveys = self._load_env_list("MASTERY_SURVEYS")
+        self.lecture_survey_folder = os.getenv("LECTURE_SURVEY_FOLDER", "").strip()
+        self.fok_survey_folder = os.getenv("FOK_SURVEY_FOLDER", "").strip()
+        self.mastery_survey_folder = os.getenv("MASTERY_SURVEY_FOLDER", "").strip()
         self.download_dir = self.project_root / "downloads"
         self.logs_dir = self.project_root / "logs"
         self.export_requests_log_file = self.logs_dir / "export_requests.log"
@@ -54,6 +60,11 @@ class Config:
             for username in usernames
             if (normalized := self.normalize_username(username))
         }
+
+    @staticmethod
+    def _load_env_list(name: str) -> tuple[str, ...]:
+        raw_value = os.getenv(name, "")
+        return tuple(item.strip() for item in raw_value.split("|") if item.strip())
 
     def _load_allowed_usernames_from_json(self) -> list[str]:
         if not self.allowed_usernames_file.exists():

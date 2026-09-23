@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from src.anketolog import AnketologError, download_report_by_survey_name
+from src.config import config
 from src.export_log import log_export_request
 
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 LECTURE_CALLBACK = "export:lecture"
+FOK_CALLBACK = "export:fok"
 MASTERY_CALLBACK = "export:mastery"
 DONE_MESSAGE_TTL_SECONDS = 3
 
@@ -25,55 +27,45 @@ class SurveyConfig:
     folder_path: str
 
 
-LECTURE_FOLDER = "Мои анкеты/Академия Меганом 2026/КСР/Лекции для студентов (вузы)"
-MASTERY_FOLDER = "Мои анкеты/Академия Меганом 2026/КСР/Культура мастерства"
-
 PROGRAM_SURVEYS = {
-    LECTURE_CALLBACK: (
-        SurveyConfig(
-            name="Культурно-просветительская лекция для студентов  2026 год",
-            folder_path=LECTURE_FOLDER,
-        ),
+    LECTURE_CALLBACK: tuple(
+        SurveyConfig(name=name, folder_path=config.lecture_survey_folder)
+        for name in config.lecture_surveys
     ),
-    MASTERY_CALLBACK: (
-        SurveyConfig(
-            name="Культура мастерства до программы 2026",
-            folder_path=MASTERY_FOLDER,
-        ),
-        SurveyConfig(
-            name="Культура мастерства итоговый 2026",
-            folder_path=MASTERY_FOLDER,
-        ),
+    FOK_CALLBACK: tuple(
+        SurveyConfig(name=name, folder_path=config.fok_survey_folder)
+        for name in config.fok_surveys
+    ),
+    MASTERY_CALLBACK: tuple(
+        SurveyConfig(name=name, folder_path=config.mastery_survey_folder)
+        for name in config.mastery_surveys
     ),
 }
 
 PROGRAM_TITLES = {
     LECTURE_CALLBACK: "Культурно-просветительская лекция для студентов 2026 год",
+    FOK_CALLBACK: "ФОК КСР Встреча мэтра в сфере культуры с молодыми участниками форума",
     MASTERY_CALLBACK: "Культура мастерства 2026",
 }
 
 
 def build_program_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Культурно-просветительская лекция для студентов 2026 год",
-                    callback_data=LECTURE_CALLBACK,
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Культура мастерства 2026",
-                    callback_data=MASTERY_CALLBACK,
-                ),
-            ],
-        ]
-    )
+    buttons = []
+    for callback_data, title in PROGRAM_TITLES.items():
+        if PROGRAM_SURVEYS[callback_data]:
+            buttons.append(
+                [InlineKeyboardButton(text=title, callback_data=callback_data)]
+            )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 @router.message()
 async def show_export_keyboard(message: Message) -> None:
+    if not any(PROGRAM_SURVEYS.values()):
+        await message.answer("Сейчас нет доступных выгрузок.")
+        return
+
     await message.answer(
         "Выберите программу для формирования выгрузки:",
         reply_markup=build_program_keyboard(),
@@ -111,13 +103,16 @@ async def show_done_and_delete(status_message: Message) -> None:
     await delete_message_safely(status_message)
 
 
-@router.callback_query(F.data.in_([LECTURE_CALLBACK, MASTERY_CALLBACK]))
+@router.callback_query(F.data.in_([LECTURE_CALLBACK, FOK_CALLBACK, MASTERY_CALLBACK]))
 async def create_exports(callback_query: CallbackQuery) -> None:
-    await callback_query.answer()
-
     callback_data = callback_query.data or ""
     program_title = PROGRAM_TITLES[callback_data]
     survey_names = PROGRAM_SURVEYS[callback_data]
+    if not survey_names:
+        await callback_query.answer("Эта выгрузка отключена.", show_alert=True)
+        return
+
+    await callback_query.answer()
     chat_id = callback_query.message.chat.id
 
     status_message = await callback_query.message.answer(
